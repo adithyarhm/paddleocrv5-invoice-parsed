@@ -7,14 +7,14 @@ Entry point pipeline:
 
 Usage:
   python -m src.pipeline --image path/to/struk.jpg
-  python -m src.pipeline --image path/to/struk.jpg --model_dir ./PP-OCRv5_server
+  python -m src.pipeline --image path/to/struk.jpg \\
+      --det_model_dir ./PP-OCRv5_server_det \\
+      --rec_model_dir ./PP-OCRv5_server_rec
 """
 
 from __future__ import annotations
 import argparse
 import json
-import os
-from pathlib import Path
 
 from paddleocr import PaddleOCR
 
@@ -31,14 +31,24 @@ from .schema_validator import validate_schema
 def build_ocr_engine(
     det_model_dir: str = "./PP-OCRv5_server_det",
     rec_model_dir: str = "./PP-OCRv5_server_rec",
-    use_gpu: bool = False,
+    device: str = "cpu",
 ) -> PaddleOCR:
+    """
+    Buat instance PaddleOCR dengan API baru (PaddleOCR >= 2.8).
+
+    Parameter yang sudah deprecated dan diganti:
+      use_angle_cls  → use_textline_orientation=True
+      det_model_dir  → text_detection_model_dir
+      rec_model_dir  → text_recognition_model_dir
+      use_gpu        → dihapus; gunakan device='gpu' atau 'cpu'
+
+    device: 'cpu' | 'gpu' | 'gpu:0' | 'gpu:1'
+    """
     return PaddleOCR(
-        use_angle_cls=True,
-        lang="en",                  # gunakan "ch" jika ada mixed Chinese
-        det_model_dir=det_model_dir,
-        rec_model_dir=rec_model_dir,
-        use_gpu=use_gpu,
+        text_detection_model_dir=det_model_dir,
+        text_recognition_model_dir=rec_model_dir,
+        use_textline_orientation=True,
+        device=device,
         show_log=False,
     )
 
@@ -49,16 +59,16 @@ def parse_invoice(image_path: str, ocr_engine: PaddleOCR = None) -> dict:
 
     Args:
         image_path: path gambar struk/invoice (JPG/PNG)
-        ocr_engine: instance PaddleOCR (buat jika None)
+        ocr_engine: instance PaddleOCR (buat baru jika None)
 
     Returns:
-        dict dengan field: merchant, date, total, items, category, confidence
+        dict: merchant, date, total, items, category, confidence
     """
     if ocr_engine is None:
         ocr_engine = build_ocr_engine()
 
     # 1. OCR
-    ocr_raw = ocr_engine.ocr(image_path, cls=True)
+    ocr_raw = ocr_engine.ocr(image_path)
 
     # 2. Normalize
     words = adapt(ocr_raw)
@@ -73,9 +83,9 @@ def parse_invoice(image_path: str, ocr_engine: PaddleOCR = None) -> dict:
 
     # 4. Extract fields
     merchant, merchant_conf = extract_merchant(lines)
-    date, date_conf = extract_date(lines)
-    total, total_conf = extract_total(lines)
-    items, items_conf = extract_items(lines)
+    date, date_conf         = extract_date(lines)
+    total, total_conf       = extract_total(lines)
+    items, items_conf       = extract_items(lines)
 
     # 5. Category
     category, category_conf = map_category(merchant, items)
@@ -97,18 +107,21 @@ def parse_invoice(image_path: str, ocr_engine: PaddleOCR = None) -> dict:
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Parse struk/invoice → JSON")
-    ap.add_argument("--image", required=True, help="Path ke gambar struk")
-    ap.add_argument("--det_model_dir", default="./PP-OCRv5_server_det")
-    ap.add_argument("--rec_model_dir", default="./PP-OCRv5_server_rec")
-    ap.add_argument("--use_gpu", action="store_true")
-    ap.add_argument("--pretty", action="store_true", help="Pretty print JSON")
+    ap = argparse.ArgumentParser(description="Parse struk/invoice → JSON (AI-DS-SPEC)")
+    ap.add_argument("--image", required=True, help="Path ke gambar struk (JPG/PNG)")
+    ap.add_argument("--det_model_dir", default="./PP-OCRv5_server_det",
+                    help="Dir model deteksi (text_detection_model_dir)")
+    ap.add_argument("--rec_model_dir", default="./PP-OCRv5_server_rec",
+                    help="Dir model rekognisi (text_recognition_model_dir)")
+    ap.add_argument("--device", default="cpu", choices=["cpu", "gpu", "gpu:0", "gpu:1"],
+                    help="Device inferensi: cpu atau gpu")
+    ap.add_argument("--pretty", action="store_true", help="Pretty print JSON output")
     args = ap.parse_args()
 
     engine = build_ocr_engine(
         det_model_dir=args.det_model_dir,
         rec_model_dir=args.rec_model_dir,
-        use_gpu=args.use_gpu,
+        device=args.device,
     )
     result = parse_invoice(args.image, engine)
     indent = 2 if args.pretty else None
