@@ -9,7 +9,14 @@ Usage:
   python -m src.pipeline --image path/to/struk.jpg
   python -m src.pipeline --image path/to/struk.jpg \\
       --det_model_dir ./PP-OCRv5_server_det \\
-      --rec_model_dir ./PP-OCRv5_server_rec
+      --rec_model_dir ./PP-OCRv5_server_rec \\
+      --device gpu
+
+Valid PaddleOCR v3.x __init__ common args:
+  device, engine, enable_hpi, use_tensorrt, precision,
+  enable_mkldnn, mkldnn_cache_capacity, cpu_threads, enable_cinn
+
+NOTE: show_log, use_gpu, use_angle_cls tidak lagi didukung di v3.x.
 """
 
 from __future__ import annotations
@@ -34,22 +41,26 @@ def build_ocr_engine(
     device: str = "cpu",
 ) -> PaddleOCR:
     """
-    Buat instance PaddleOCR dengan API baru (PaddleOCR >= 2.8).
+    Buat instance PaddleOCR kompatibel dengan v3.x (PaddleOCR >= 3.0).
 
-    Parameter yang sudah deprecated dan diganti:
-      use_angle_cls  → use_textline_orientation=True
-      det_model_dir  → text_detection_model_dir
-      rec_model_dir  → text_recognition_model_dir
-      use_gpu        → dihapus; gunakan device='gpu' atau 'cpu'
+    Parameter yang VALID di v3.x:
+      text_detection_model_dir   : path model deteksi
+      text_recognition_model_dir : path model rekognisi
+      use_textline_orientation   : ganti use_angle_cls
+      ocr_version                : 'PP-OCRv5' | 'PP-OCRv4' | 'PP-OCRv3'
+      device                     : 'cpu' | 'gpu' | 'gpu:0'
+      lang                       : 'en' | 'ch' | dll
 
-    device: 'cpu' | 'gpu' | 'gpu:0' | 'gpu:1'
+    Parameter yang sudah DIHAPUS di v3.x:
+      show_log, use_gpu, use_angle_cls, det_model_dir, rec_model_dir
     """
     return PaddleOCR(
         text_detection_model_dir=det_model_dir,
         text_recognition_model_dir=rec_model_dir,
         use_textline_orientation=True,
+        ocr_version="PP-OCRv5",
+        lang="en",
         device=device,
-        show_log=False,
     )
 
 
@@ -67,7 +78,7 @@ def parse_invoice(image_path: str, ocr_engine: PaddleOCR = None) -> dict:
     if ocr_engine is None:
         ocr_engine = build_ocr_engine()
 
-    # 1. OCR
+    # 1. OCR — v3.x tidak butuh cls=True
     ocr_raw = ocr_engine.ocr(image_path)
 
     # 2. Normalize
@@ -110,11 +121,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Parse struk/invoice → JSON (AI-DS-SPEC)")
     ap.add_argument("--image", required=True, help="Path ke gambar struk (JPG/PNG)")
     ap.add_argument("--det_model_dir", default="./PP-OCRv5_server_det",
-                    help="Dir model deteksi (text_detection_model_dir)")
+                    help="Dir model deteksi")
     ap.add_argument("--rec_model_dir", default="./PP-OCRv5_server_rec",
-                    help="Dir model rekognisi (text_recognition_model_dir)")
-    ap.add_argument("--device", default="cpu", choices=["cpu", "gpu", "gpu:0", "gpu:1"],
-                    help="Device inferensi: cpu atau gpu")
+                    help="Dir model rekognisi")
+    ap.add_argument("--device", default="cpu",
+                    help="Device inferensi: cpu | gpu | gpu:0")
     ap.add_argument("--pretty", action="store_true", help="Pretty print JSON output")
     args = ap.parse_args()
 
